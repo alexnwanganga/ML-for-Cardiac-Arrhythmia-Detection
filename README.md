@@ -101,46 +101,263 @@ jupyter notebook Code/Scientific_ECG_Experiment.ipynb
 
 GPU acceleration is optional. The CNN code selects CUDA when available and contains support for Apple's Metal Performance Shaders (MPS). The quantum experiments can be computationally expensive when run in simulation.
 
-## Running the registered classical experiment
+## Experiment task guide
 
-The notebook provides an auditable front end, while the same experiment can be run directly:
+Run commands from the repository root. Use a different `--output-dir` for every configuration. Passing `--overwrite` intentionally replaces an existing validation run.
+
+| Task | Branch | Primary file |
+| --- | --- | --- |
+| Review the registered protocol | Either | `EXPERIMENT_PROTOCOL.md` |
+| Run the classical 12-lead CNN | `main` or `hybrid-model` | `Code/Scientific_ECG_Experiment.ipynb` |
+| Run scripted classical experiments | `main` or `hybrid-model` | `Code/run_classical_experiment.py` |
+| Design hybrid comparisons | `hybrid-model` | `Code/Hybrid_ECG_Experiment.ipynb` |
+| Run one hybrid/control model | `hybrid-model` | `Code/run_hybrid_experiment.py` |
+| Generate the prespecified hybrid grid | `hybrid-model` | `Code/generate_hybrid_experiment_grid.py` |
+| Compare two finalists | `hybrid-model` | `Code/compare_hybrid_predictions.py` |
+| Run automated checks | Either | `tests/` |
+| Review historical exploration only | Either | `Code/ML_for_Cardiac_Arrythmia_Detection.ipynb` |
+
+### 1. Install and verify the environment
+
+Classical branch:
 
 ```powershell
-python Code/run_classical_experiment.py --stage validate --output-dir artifacts/classical/seed-43 --seed 43
+git switch main
+python -m pip install -r requirements.txt
+python -m pip install pytest
+python -m pytest -q
+python Code/run_classical_experiment.py --help
 ```
 
-Each run saves the configuration, exact record-level split, training-only normalization statistics, validation-tuned decision thresholds, best checkpoint, training history, class counts, calibration measures, grouped bootstrap confidence intervals, and final metrics. `artifacts/` is intentionally ignored by Git.
-
-After prespecifying the final classical model, evaluate its sealed test split once with the identical output directory and configuration:
+Hybrid branch:
 
 ```powershell
-python Code/run_classical_experiment.py --stage test --output-dir artifacts/classical/seed-43 --seed 43
-```
-
-## Hybrid branch experiments
-
-The `hybrid-model` branch adds a controlled comparison between a linear head, a parameter-matched classical MLP, a variational quantum circuit, and a QCNN-style circuit over the same 12-lead CNN encoder. Install the extra dependency and open the hybrid notebook:
-
-```powershell
+git switch hybrid-model
 python -m pip install -r requirements-hybrid.txt
+python -m pip install pytest
+python -m pytest -q
+python Code/run_hybrid_experiment.py --help
+```
+
+### 2. Inspect the workflow interactively
+
+Classical notebook:
+
+```powershell
+jupyter notebook Code/Scientific_ECG_Experiment.ipynb
+```
+
+Hybrid/control notebook:
+
+```powershell
 jupyter notebook Code/Hybrid_ECG_Experiment.ipynb
 ```
 
-Hybrid runs default to validation only:
+The larger `ML_for_Cardiac_Arrythmia_Detection.ipynb` notebook is retained for provenance. Do not use its lead-level split or dataframe slicing for final comparisons.
+
+### 3. Train and validate the classical CNN
+
+The default task is nine-label multilabel classification. Validation does not open the test waveforms:
 
 ```powershell
-python Code/run_hybrid_experiment.py --model hybrid-vqc --stage validate --n-qubits 4 --quantum-depth 1
+python Code/run_classical_experiment.py `
+  --stage validate `
+  --seed 43 `
+  --output-dir artifacts/classical/seed-43
 ```
 
-Use `--stage test` only after prespecifying the winning configuration. The runner checks that the test configuration matches the saved validation run.
-
-The hybrid runner also exposes registered ablations through `--embedding reupload`, `--shots`, and `--noise-probability`. Use noiseless analytic simulation for architecture screening, then apply finite-shot and noise tests only to the selected finalists.
-
-After the sealed test is run for prespecified finalists, compare their aligned predictions with:
+Optional training-only augmentation:
 
 ```powershell
-python Code/compare_hybrid_predictions.py --first path/to/model-a/test_predictions.csv --second path/to/model-b/test_predictions.csv --output paired_comparison.json
+python Code/run_classical_experiment.py `
+  --stage validate `
+  --seed 43 `
+  --augment `
+  --output-dir artifacts/classical-augmented/seed-43
 ```
+
+Secondary single-label analysis must use a separate output directory and must not be mixed with multilabel results:
+
+```powershell
+python Code/run_classical_experiment.py `
+  --stage validate `
+  --task single-label `
+  --target-classes "SR,AF,1AVB,LBBB,RBBB,APB,VPB,STDD,STE" `
+  --seed 43 `
+  --output-dir artifacts/classical-single-label/seed-43
+```
+
+### 4. Repeat a confirmed classical configuration across seeds
+
+```powershell
+$seeds = 13, 23, 33, 43, 53
+foreach ($seed in $seeds) {
+  python Code/run_classical_experiment.py `
+    --stage validate `
+    --seed $seed `
+    --output-dir "artifacts/classical/seed-$seed"
+}
+```
+
+Do not select the best seed. Report the complete prespecified set.
+
+### 5. Open the classical test set once
+
+Use the same seed, task, target classes, and output directory as validation:
+
+```powershell
+python Code/run_classical_experiment.py `
+  --stage test `
+  --seed 43 `
+  --output-dir artifacts/classical/seed-43
+```
+
+The runner refuses to test without a completed validation checkpoint and matching configuration.
+
+### 6. Generate the hybrid experiment plan
+
+```powershell
+git switch hybrid-model
+python Code/generate_hybrid_experiment_grid.py
+```
+
+This writes `artifacts/hybrid/experiment_grid.csv`. It records the screening and confirmation plan; it does not launch expensive training automatically.
+
+### 7. Screen classical controls and quantum heads
+
+Linear bottleneck control:
+
+```powershell
+python Code/run_hybrid_experiment.py --model linear --stage validate --n-qubits 4 --quantum-depth 1 --seed 43
+```
+
+Parameter-matched MLP control for the VQC:
+
+```powershell
+python Code/run_hybrid_experiment.py --model matched-mlp --matched-to vqc --stage validate --n-qubits 4 --quantum-depth 1 --seed 43
+```
+
+Variational quantum circuit:
+
+```powershell
+python Code/run_hybrid_experiment.py --model hybrid-vqc --stage validate --n-qubits 4 --quantum-depth 1 --seed 43
+```
+
+QCNN-style circuit and matched MLP control:
+
+```powershell
+python Code/run_hybrid_experiment.py --model hybrid-qcnn --stage validate --n-qubits 4 --quantum-depth 1 --seed 43
+python Code/run_hybrid_experiment.py --model matched-mlp --matched-to qcnn --stage validate --n-qubits 4 --quantum-depth 1 --seed 43 --output-dir artifacts/hybrid/matched-qcnn/q4-d1/seed-43
+```
+
+Repeat screening for 4/8 qubits and depths 1/2 as listed in `experiment_grid.csv`. Keep every output directory distinct.
+
+### 8. Compare joint and pretrained-frozen encoders
+
+Joint training is the default. To test a frozen classical encoder, first complete the matching classical validation run, then provide its checkpoint:
+
+```powershell
+python Code/run_hybrid_experiment.py `
+  --model hybrid-vqc `
+  --stage validate `
+  --n-qubits 4 `
+  --quantum-depth 1 `
+  --encoder-checkpoint artifacts/classical/seed-43/best_model.pt `
+  --freeze-encoder `
+  --seed 43 `
+  --output-dir artifacts/hybrid/hybrid-vqc/q4-d1/seed-43-frozen
+```
+
+### 9. Run registered quantum ablations
+
+Angle data re-uploading:
+
+```powershell
+python Code/run_hybrid_experiment.py `
+  --model hybrid-vqc `
+  --stage validate `
+  --embedding reupload `
+  --n-qubits 4 `
+  --quantum-depth 2 `
+  --seed 43 `
+  --output-dir artifacts/hybrid/hybrid-vqc/q4-d2-reupload/seed-43
+```
+
+Finite-shot evaluation/training configuration:
+
+```powershell
+python Code/run_hybrid_experiment.py `
+  --model hybrid-vqc `
+  --stage validate `
+  --shots 1000 `
+  --n-qubits 4 `
+  --quantum-depth 1 `
+  --seed 43 `
+  --output-dir artifacts/hybrid/hybrid-vqc/q4-d1-shots1000/seed-43
+```
+
+Depolarizing-noise simulation:
+
+```powershell
+python Code/run_hybrid_experiment.py `
+  --model hybrid-vqc `
+  --stage validate `
+  --noise-probability 0.01 `
+  --n-qubits 4 `
+  --quantum-depth 1 `
+  --seed 43 `
+  --output-dir artifacts/hybrid/hybrid-vqc/q4-d1-noise001/seed-43
+```
+
+Use noiseless analytic simulation for initial screening. Apply finite-shot and noise experiments only to prespecified finalists because parameter-shift simulation can be very slow.
+
+### 10. Test the prespecified hybrid winner
+
+Repeat every model option from its validation command and change only `--stage validate` to `--stage test`. For example:
+
+```powershell
+python Code/run_hybrid_experiment.py `
+  --model hybrid-vqc `
+  --stage test `
+  --n-qubits 4 `
+  --quantum-depth 1 `
+  --seed 43
+```
+
+The runner verifies the saved model configuration and validation-tuned decision thresholds before opening the test set.
+
+### 11. Compare finalists on identical ECG records
+
+```powershell
+python Code/compare_hybrid_predictions.py `
+  --first artifacts/hybrid/hybrid-vqc/q4-d1/seed-43/test_predictions.csv `
+  --second artifacts/hybrid/matched-mlp/q4-d1/seed-43/test_predictions.csv `
+  --iterations 2000 `
+  --output artifacts/hybrid/paired-vqc-vs-mlp.json
+```
+
+The comparison rejects mismatched records or targets and reports paired grouped-bootstrap intervals.
+
+### 12. Understand generated files
+
+Each experiment directory may contain:
+
+| File | Purpose |
+| --- | --- |
+| `config.json` or `experiment_config.json` | Data and training configuration |
+| `model_config.json` | Hybrid/control architecture configuration |
+| `split_manifest.csv` | Exact record and split assignment |
+| `class_counts.json` | Label prevalence in every split |
+| `normalization.json` | Training-only channel statistics |
+| `best_model.pt` | Best validation checkpoint |
+| `training.json` | Epoch history, timing, and parameter counts |
+| `decision_thresholds.json` | Per-label thresholds tuned on validation only |
+| `validation_predictions.csv` | Record-aligned validation probabilities |
+| `validation_metrics.json` | Validation results used for selection |
+| `test_predictions.csv` | Record-aligned sealed-test probabilities |
+| `test_metrics.json` | Final metrics, calibration, and confidence intervals |
+
+Generated artifacts are ignored by Git. Preserve the selected result directories separately if they are needed for a paper or audit.
 
 ## Legacy notebook paths
 
