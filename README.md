@@ -100,21 +100,127 @@ jupyter notebook Code/Scientific_ECG_Experiment.ipynb
 
 GPU acceleration is optional. The CNN code selects CUDA when available and contains support for Apple's Metal Performance Shaders (MPS). The quantum experiments can be computationally expensive when run in simulation.
 
-## Running the registered classical experiment
+## Experiment task guide
 
-The notebook provides an auditable front end, while the same experiment can be run directly:
+Run commands from the repository root. Use a different `--output-dir` for every configuration. Passing `--overwrite` intentionally replaces an existing validation run.
+
+| Task | File or branch to use |
+| --- | --- |
+| Review the registered protocol | `EXPERIMENT_PROTOCOL.md` |
+| Inspect the classical workflow | `Code/Scientific_ECG_Experiment.ipynb` |
+| Run a classical experiment | `Code/run_classical_experiment.py` |
+| Run automated checks | `tests/` |
+| Review historical exploration only | `Code/ML_for_Cardiac_Arrythmia_Detection.ipynb` |
+| Run hybrid CNN/quantum experiments | Switch to the `hybrid-model` branch |
+
+### 1. Install and verify the classical environment
 
 ```powershell
-python Code/run_classical_experiment.py --stage validate --output-dir artifacts/classical/seed-43 --seed 43
+git switch main
+python -m pip install -r requirements.txt
+python -m pip install pytest
+python -m pytest -q
+python Code/run_classical_experiment.py --help
 ```
 
-Each run saves the configuration, exact record-level split, training-only normalization statistics, validation-tuned decision thresholds, best checkpoint, training history, class counts, calibration measures, grouped bootstrap confidence intervals, and final metrics. `artifacts/` is intentionally ignored by Git.
-
-After prespecifying the final classical model, evaluate its sealed test split once with the identical output directory and configuration:
+### 2. Inspect the workflow interactively
 
 ```powershell
-python Code/run_classical_experiment.py --stage test --output-dir artifacts/classical/seed-43 --seed 43
+jupyter notebook Code/Scientific_ECG_Experiment.ipynb
 ```
+
+The larger `ML_for_Cardiac_Arrythmia_Detection.ipynb` notebook is retained for provenance. Do not use its lead-level split or dataframe slicing for final comparisons.
+
+### 3. Train and validate the classical CNN
+
+The default task is nine-label multilabel classification. Validation does not open the test waveforms:
+
+```powershell
+python Code/run_classical_experiment.py `
+  --stage validate `
+  --seed 43 `
+  --output-dir artifacts/classical/seed-43
+```
+
+Optional training-only augmentation:
+
+```powershell
+python Code/run_classical_experiment.py `
+  --stage validate `
+  --seed 43 `
+  --augment `
+  --output-dir artifacts/classical-augmented/seed-43
+```
+
+Secondary single-label analysis must use a separate output directory and must not be mixed with multilabel results:
+
+```powershell
+python Code/run_classical_experiment.py `
+  --stage validate `
+  --task single-label `
+  --target-classes "SR,AF,1AVB,LBBB,RBBB,APB,VPB,STDD,STE" `
+  --seed 43 `
+  --output-dir artifacts/classical-single-label/seed-43
+```
+
+### 4. Repeat a confirmed configuration across seeds
+
+```powershell
+$seeds = 13, 23, 33, 43, 53
+foreach ($seed in $seeds) {
+  python Code/run_classical_experiment.py `
+    --stage validate `
+    --seed $seed `
+    --output-dir "artifacts/classical/seed-$seed"
+}
+```
+
+Do not select the best seed. Report the complete prespecified set.
+
+### 5. Open the classical test set once
+
+Use the same seed, task, target classes, and output directory as validation:
+
+```powershell
+python Code/run_classical_experiment.py `
+  --stage test `
+  --seed 43 `
+  --output-dir artifacts/classical/seed-43
+```
+
+The runner refuses to test without a completed validation checkpoint and matching configuration.
+
+### 6. Run hybrid and quantum comparisons
+
+The controlled linear, parameter-matched MLP, VQC, and QCNN experiments live on `hybrid-model`. Its README contains commands for the experiment grid, frozen-encoder comparison, re-uploading, finite-shot/noise ablations, sealed testing, and paired finalist analysis:
+
+```powershell
+git switch hybrid-model
+python -m pip install -r requirements-hybrid.txt
+python -m pip install pytest
+python -m pytest -q
+jupyter notebook Code/Hybrid_ECG_Experiment.ipynb
+```
+
+### 7. Understand generated files
+
+Each classical experiment directory may contain:
+
+| File | Purpose |
+| --- | --- |
+| `config.json` | Data and training configuration |
+| `split_manifest.csv` | Exact record and split assignment |
+| `class_counts.json` | Label prevalence in every split |
+| `normalization.json` | Training-only channel statistics |
+| `best_model.pt` | Best validation checkpoint |
+| `training.json` | Epoch history and timing |
+| `decision_thresholds.json` | Per-label thresholds tuned on validation only |
+| `validation_predictions.csv` | Record-aligned validation probabilities |
+| `validation_metrics.json` | Validation results used for selection |
+| `test_predictions.csv` | Record-aligned sealed-test probabilities |
+| `test_metrics.json` | Final metrics, calibration, and confidence intervals |
+
+Generated artifacts are ignored by Git. Preserve the selected result directories separately if they are needed for a paper or audit.
 
 ## Legacy notebook paths
 
