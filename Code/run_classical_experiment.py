@@ -41,6 +41,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the leakage-safe 12-lead CNN experiment")
     parser.add_argument("--repo-root", type=Path, default=None)
     parser.add_argument("--output-dir", type=Path, default=Path("artifacts/classical"))
+    parser.add_argument("--stage", choices=("validate", "test"), default="validate")
     parser.add_argument("--seed", type=int, default=43)
     parser.add_argument("--task", choices=("multilabel", "single-label"), default="multilabel")
     parser.add_argument("--epochs", type=int, default=100)
@@ -51,6 +52,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--augment", action="store_true")
     parser.add_argument("--bootstrap-iterations", type=int, default=1000)
+    parser.add_argument("--overwrite", action="store_true")
     parser.add_argument(
         "--target-classes",
         default=",".join(DEFAULT_TARGET_CLASSES),
@@ -149,8 +151,27 @@ def main() -> int:
         class_names=config.target_classes,
     )
     output_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint_path = output_dir / "best_model.pt"
+    config_path = output_dir / "config.json"
+    if args.stage == "validate" and checkpoint_path.exists() and not args.overwrite:
+        raise FileExistsError(
+            f"Run already exists at {output_dir}; use a new directory or pass --overwrite"
+        )
+    if args.stage == "test":
+        if not checkpoint_path.exists() or not config_path.exists():
+            raise FileNotFoundError("Test stage requires a completed validation run")
+        stored = json.loads(config_path.read_text(encoding="utf-8"))
+        comparable = ("seed", "task", "sample_length", "expected_leads", "latent_dim", "target_classes")
+        mismatches = {
+            key: (stored.get(key), config.to_dict().get(key))
+            for key in comparable
+            if stored.get(key) != config.to_dict().get(key)
+        }
+        if mismatches:
+            raise ValueError(f"Test configuration does not match validation run: {mismatches}")
     write_split_manifest(output_dir / "split_manifest.csv", splits)
-    save_json(output_dir / "config.json", config.to_dict())
+    if args.stage == "validate":
+        save_json(config_path, config.to_dict())
     save_json(
         output_dir / "class_counts.json",
         {
@@ -165,13 +186,21 @@ def main() -> int:
 
     class_names = tuple(config.target_classes)
     class_to_index = {name: index for index, name in enumerate(class_names)}
-    channel_mean, channel_std = compute_channel_statistics(
-        splits.train, config.expected_leads, config.sample_length
-    )
-    save_json(
-        output_dir / "normalization.json",
-        {"mean": channel_mean.tolist(), "std": channel_std.tolist()},
-    )
+    normalization_path = output_dir / "normalization.json"
+    if args.stage == "test":
+        if not normalization_path.exists():
+            raise FileNotFoundError(f"Training normalization not found: {normalization_path}")
+        normalization = json.loads(normalization_path.read_text(encoding="utf-8"))
+        channel_mean = np.asarray(normalization["mean"], dtype=np.float32)
+        channel_std = np.asarray(normalization["std"], dtype=np.float32)
+    else:
+        channel_mean, channel_std = compute_channel_statistics(
+            splits.train, config.expected_leads, config.sample_length
+        )
+        save_json(
+            normalization_path,
+            {"mean": channel_mean.tolist(), "std": channel_std.tolist()},
+        )
 
     common_dataset_args = {
         "class_to_index": class_to_index,
@@ -214,6 +243,48 @@ def main() -> int:
         dropout=config.dropout,
     )
     device = select_device()
+    multilabel = config.task == "multilabel"
+    if args.stage == "test":
+        model.load_state_dict(torch.load(checkpoint_path, map_location="cpu", weights_only=True))
+        model.to(device)
+        threshold_path = output_dir / "decision_thresholds.json"
+        if not threshold_path.exists():
+            raise FileNotFoundError(f"Validation thresholds not found: {threshold_path}")
+        threshold_data = json.loads(threshold_path.read_text(encoding="utf-8"))
+        if threshold_data["class_names"] != list(class_names):
+            raise ValueError("Saved decision-threshold class order does not match this run")
+        thresholds = np.asarray(threshold_data["thresholds"], dtype=np.float64)
+        test_targets, test_probabilities = predict(
+            model, test_loader, device, multilabel=multilabel
+        )
+        save_prediction_table(
+            output_dir / "test_predictions.csv",
+            splits.test,
+            test_targets,
+            test_probabilities,
+            class_names,
+        )
+        test_metrics = classification_metrics(
+            test_targets,
+            test_probabilities,
+            class_names,
+            multilabel=multilabel,
+            threshold=thresholds,
+        )
+        test_metrics["confidence_intervals"] = bootstrap_confidence_intervals(
+            test_targets,
+            test_probabilities,
+            class_names,
+            groups=[record.patient_id for record in splits.test],
+            multilabel=multilabel,
+            threshold=thresholds,
+            iterations=args.bootstrap_iterations,
+            seed=config.seed,
+        )
+        save_json(output_dir / "test_metrics.json", test_metrics)
+        print(json.dumps(test_metrics, indent=2))
+        return 0
+
     result = fit_classifier(
         model,
         train_loader,
@@ -230,7 +301,7 @@ def main() -> int:
         primary_metric=config.primary_metric,
         multilabel=config.task == "multilabel",
     )
-    torch.save(model.state_dict(), output_dir / "best_model.pt")
+    torch.save(model.state_dict(), checkpoint_path)
     save_json(
         output_dir / "training.json",
         {
@@ -242,9 +313,6 @@ def main() -> int:
         },
     )
 
-    # The held-out test set is touched once, after architecture selection and
-    # early stopping have completed using training/validation only.
-    multilabel = config.task == "multilabel"
     validation_targets, validation_probabilities = predict(
         model, validation_loader, device, multilabel=multilabel
     )
@@ -264,33 +332,16 @@ def main() -> int:
         output_dir / "decision_thresholds.json",
         {"class_names": list(class_names), "thresholds": np.asarray(thresholds).tolist()},
     )
-    test_targets, test_probabilities = predict(model, test_loader, device, multilabel=multilabel)
-    save_prediction_table(
-        output_dir / "test_predictions.csv",
-        splits.test,
-        test_targets,
-        test_probabilities,
-        class_names,
-    )
-    test_metrics = classification_metrics(
-        test_targets,
-        test_probabilities,
+    validation_metrics = classification_metrics(
+        validation_targets,
+        validation_probabilities,
         class_names,
         multilabel=multilabel,
         threshold=thresholds,
     )
-    test_metrics["confidence_intervals"] = bootstrap_confidence_intervals(
-        test_targets,
-        test_probabilities,
-        class_names,
-        groups=[record.patient_id for record in splits.test],
-        multilabel=multilabel,
-        threshold=thresholds,
-        iterations=args.bootstrap_iterations,
-        seed=config.seed,
-    )
-    save_json(output_dir / "test_metrics.json", test_metrics)
-    print(json.dumps(test_metrics, indent=2))
+    save_json(output_dir / "validation_metrics.json", validation_metrics)
+    print(json.dumps(validation_metrics, indent=2))
+    print("Test set was not evaluated. Run --stage test only for the prespecified model.")
     return 0
 
 
