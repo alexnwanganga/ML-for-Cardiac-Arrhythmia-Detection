@@ -21,6 +21,7 @@ The main implementation is an exploratory Jupyter notebook that:
 ```text
 .
 |-- Code/
+|   |-- Scientific_ECG_Experiment.ipynb
 |   |-- ML_for_Cardiac_Arrythmia_Detection.ipynb
 |   |-- ML_for_Cardiac_Arrythmia_Detection.html
 |   `-- ML_for_Cardiac_Arrythmia_Detection.zip
@@ -38,7 +39,9 @@ The main implementation is an exploratory Jupyter notebook that:
 `-- README.md
 ```
 
-The notebook filename retains the original `Arrythmia` spelling. The standard spelling, *arrhythmia*, is used elsewhere in this README.
+`Scientific_ECG_Experiment.ipynb` is the leakage-safe, reproducible entry point. The larger notebook whose filename retains the original `Arrythmia` spelling is preserved as an exploratory record and should not be used for final model comparisons.
+
+The prespecified evaluation rules are documented in `EXPERIMENT_PROTOCOL.md`.
 
 ## Dataset
 
@@ -46,7 +49,7 @@ The repository's research materials cite the PhysioNet dataset:
 
 > J. Zheng, H. Guo, and H. Chu, “A large scale 12-lead electrocardiogram database for arrhythmia study (version 1.0.0),” PhysioNet, 2022. DOI: [10.13026/wgex-er52](https://doi.org/10.13026/wgex-er52).
 
-The project materials describe 45,152 12-lead ECG records, each approximately 10 seconds long and sampled at 500 Hz. The preprocessing workflow uses the supplied headers and the SNOMED CT mapping in `References/ConditionNames_SNOMED-CT.csv` to assign records to diagnostic categories.
+The project materials describe 45,152 12-lead ECG records, each approximately 10 seconds long and sampled at 500 Hz. The preprocessing workflow uses the supplied headers and the SNOMED CT mapping in `References/ConditionNames_SNOMED-CT.csv` to assign records to diagnostic categories. Because diagnoses can co-occur, the registered experiment treats this as multilabel classification and keeps each original ECG exactly once.
 
 The ECG files are intentionally excluded from Git because the dataset contains tens of thousands of records and is too large for normal GitHub storage. Git tracks only `.gitkeep` placeholders for the category directories.
 
@@ -92,12 +95,22 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install jupyter numpy pandas scipy matplotlib scikit-learn scikit-optimize torch torcheval wfdb pennylane tqdm
-jupyter notebook Code/ML_for_Cardiac_Arrythmia_Detection.ipynb
+jupyter notebook Code/Scientific_ECG_Experiment.ipynb
 ```
 
 GPU acceleration is optional. The CNN code selects CUDA when available and contains support for Apple's Metal Performance Shaders (MPS). The quantum experiments can be computationally expensive when run in simulation.
 
-## Before running the notebook
+## Running the registered classical experiment
+
+The notebook provides an auditable front end, while the same experiment can be run directly:
+
+```powershell
+python Code/run_classical_experiment.py --output-dir artifacts/classical/seed-43 --seed 43
+```
+
+Each run saves the configuration, exact record-level split, training-only normalization statistics, best checkpoint, training history, class counts, and final metrics. `artifacts/` is intentionally ignored by Git.
+
+## Legacy notebook paths
 
 The notebook currently contains absolute Windows paths from the original development computer. Update the configuration cell near the beginning of the notebook so that these locations match your clone:
 
