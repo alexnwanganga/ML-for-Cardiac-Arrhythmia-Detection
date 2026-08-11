@@ -7,6 +7,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
@@ -21,9 +22,14 @@ from ecg_experiment.data import (
     seed_worker,
 )
 from ecg_experiment.models import ClassicalECGClassifier
+from ecg_experiment.metrics import (
+    bootstrap_confidence_intervals,
+    classification_metrics,
+    optimize_multilabel_thresholds,
+)
 from ecg_experiment.training import (
-    evaluate_classifier,
     fit_classifier,
+    predict,
     save_json,
     select_device,
     set_global_seed,
@@ -43,6 +49,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--latent-dim", type=int, default=32)
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--augment", action="store_true")
+    parser.add_argument("--bootstrap-iterations", type=int, default=1000)
     parser.add_argument(
         "--target-classes",
         default=",".join(DEFAULT_TARGET_CLASSES),
@@ -236,8 +243,36 @@ def main() -> int:
 
     # The held-out test set is touched once, after architecture selection and
     # early stopping have completed using training/validation only.
-    test_metrics = evaluate_classifier(
-        model, test_loader, class_names, device, multilabel=config.task == "multilabel"
+    multilabel = config.task == "multilabel"
+    validation_targets, validation_probabilities = predict(
+        model, validation_loader, device, multilabel=multilabel
+    )
+    thresholds = (
+        optimize_multilabel_thresholds(validation_targets, validation_probabilities)
+        if multilabel
+        else 0.5
+    )
+    save_json(
+        output_dir / "decision_thresholds.json",
+        {"class_names": list(class_names), "thresholds": np.asarray(thresholds).tolist()},
+    )
+    test_targets, test_probabilities = predict(model, test_loader, device, multilabel=multilabel)
+    test_metrics = classification_metrics(
+        test_targets,
+        test_probabilities,
+        class_names,
+        multilabel=multilabel,
+        threshold=thresholds,
+    )
+    test_metrics["confidence_intervals"] = bootstrap_confidence_intervals(
+        test_targets,
+        test_probabilities,
+        class_names,
+        groups=[record.patient_id for record in splits.test],
+        multilabel=multilabel,
+        threshold=thresholds,
+        iterations=args.bootstrap_iterations,
+        seed=config.seed,
     )
     save_json(output_dir / "test_metrics.json", test_metrics)
     print(json.dumps(test_metrics, indent=2))
