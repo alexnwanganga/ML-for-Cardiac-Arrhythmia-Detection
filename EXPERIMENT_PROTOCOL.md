@@ -20,6 +20,8 @@ The primary task is multilabel classification over `SR`, `AF`, `1AVB`, `LBBB`, `
 
 The primary validation metric is macro-AUPRC. Macro-F1, macro-AUROC, accuracy, and per-class precision/recall/F1 are secondary. Hyperparameters, early stopping, and architecture selection use no test examples.
 
+For multilabel classification, each label's decision threshold is selected on validation predictions using a fixed coarse grid. Final reports also include Brier score, expected calibration error, and 95% grouped bootstrap confidence intervals. Thresholds are never tuned on test predictions.
+
 The classical branch compares only classical architectures. The hybrid branch must compare the same CNN encoder with:
 
 1. a linear classical head;

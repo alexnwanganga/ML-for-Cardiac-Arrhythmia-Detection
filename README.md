@@ -109,7 +109,7 @@ The notebook provides an auditable front end, while the same experiment can be r
 python Code/run_classical_experiment.py --output-dir artifacts/classical/seed-43 --seed 43
 ```
 
-Each run saves the configuration, exact record-level split, training-only normalization statistics, best checkpoint, training history, class counts, and final metrics. `artifacts/` is intentionally ignored by Git.
+Each run saves the configuration, exact record-level split, training-only normalization statistics, validation-tuned decision thresholds, best checkpoint, training history, class counts, calibration measures, grouped bootstrap confidence intervals, and final metrics. `artifacts/` is intentionally ignored by Git.
 
 ## Hybrid branch experiments
 
