@@ -22,6 +22,8 @@ The primary validation metric is macro-AUPRC. Macro-F1, macro-AUROC, accuracy, a
 
 For multilabel classification, each label's decision threshold is selected on validation predictions using a fixed coarse grid. Final reports also include Brier score, expected calibration error, and 95% grouped bootstrap confidence intervals. Thresholds are never tuned on test predictions.
 
+Every run exports record-aligned validation and test probabilities. These tables permit audit of sample ordering and paired bootstrap comparisons between finalists without rerunning or rounding model outputs.
+
 The classical branch compares only classical architectures. The hybrid branch must compare the same CNN encoder with:
 
 1. a linear classical head;
