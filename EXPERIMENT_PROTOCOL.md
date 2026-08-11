@@ -29,9 +29,15 @@ The classical branch compares only classical architectures. The hybrid branch mu
 
 Every comparison uses the same split manifest, preprocessing, optimization budget where practical, and prespecified seeds.
 
+The screening phase uses seed 43 with 4/8 qubits and circuit depths 1/2. The confirmation phase freezes the chosen architecture and evaluates seeds 13, 23, 33, 43, and 53 under both pretrained-frozen and jointly trained encoder regimes. Screening results may choose the confirmation architecture but may not alter the held-out test set.
+
+The matched MLP control is selected to approximate the trainable parameter count of the corresponding VQC or QCNN feature layer. Parameter counts and elapsed training time are saved for every run.
+
 ## Test policy
 
 Evaluate the held-out test set only after choosing the complete training procedure. Report all prespecified seeds, not the best seed. Include parameter counts, training time, confusion matrices, per-class metrics, and patient- or record-level bootstrap confidence intervals.
+
+`run_hybrid_experiment.py` defaults to validation-only execution. Its separate `--stage test` mode requires an existing checkpoint and rejects model settings that differ from the saved validation configuration.
 
 ## Current limitations
 

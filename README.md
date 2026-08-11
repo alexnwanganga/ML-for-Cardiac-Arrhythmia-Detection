@@ -22,6 +22,7 @@ The main implementation is an exploratory Jupyter notebook that:
 .
 |-- Code/
 |   |-- Scientific_ECG_Experiment.ipynb
+|   |-- Hybrid_ECG_Experiment.ipynb
 |   |-- ML_for_Cardiac_Arrythmia_Detection.ipynb
 |   |-- ML_for_Cardiac_Arrythmia_Detection.html
 |   `-- ML_for_Cardiac_Arrythmia_Detection.zip
@@ -109,6 +110,25 @@ python Code/run_classical_experiment.py --output-dir artifacts/classical/seed-43
 ```
 
 Each run saves the configuration, exact record-level split, training-only normalization statistics, best checkpoint, training history, class counts, and final metrics. `artifacts/` is intentionally ignored by Git.
+
+## Hybrid branch experiments
+
+The `hybrid-model` branch adds a controlled comparison between a linear head, a parameter-matched classical MLP, a variational quantum circuit, and a QCNN-style circuit over the same 12-lead CNN encoder. Install the extra dependency and open the hybrid notebook:
+
+```powershell
+python -m pip install -r requirements-hybrid.txt
+jupyter notebook Code/Hybrid_ECG_Experiment.ipynb
+```
+
+Hybrid runs default to validation only:
+
+```powershell
+python Code/run_hybrid_experiment.py --model hybrid-vqc --stage validate --n-qubits 4 --quantum-depth 1
+```
+
+Use `--stage test` only after prespecifying the winning configuration. The runner checks that the test configuration matches the saved validation run.
+
+The hybrid runner also exposes registered ablations through `--embedding reupload`, `--shots`, and `--noise-probability`. Use noiseless analytic simulation for architecture screening, then apply finite-shot and noise tests only to the selected finalists.
 
 ## Legacy notebook paths
 
