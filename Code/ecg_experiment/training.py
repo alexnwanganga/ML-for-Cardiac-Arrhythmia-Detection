@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import csv
 import json
 import random
 from dataclasses import dataclass
@@ -146,3 +147,43 @@ def save_json(path: str | Path, value: Any) -> None:
     output = Path(path)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(value, indent=2, allow_nan=False), encoding="utf-8")
+
+
+def save_prediction_table(
+    path: str | Path,
+    records: Sequence[Any],
+    targets: np.ndarray,
+    probabilities: np.ndarray,
+    class_names: Sequence[str],
+) -> None:
+    """Save record-aligned targets and probabilities for audit/paired tests."""
+
+    if len(records) != len(targets) or len(records) != len(probabilities):
+        raise ValueError("Records, targets, and probabilities must have equal length")
+    output = Path(path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    multilabel = targets.ndim == 2
+    fieldnames = ["record_id", "patient_id"]
+    if multilabel:
+        fieldnames.extend(f"true_{name}" for name in class_names)
+    else:
+        fieldnames.append("true_class_index")
+    fieldnames.extend(f"prob_{name}" for name in class_names)
+    with output.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for index, record in enumerate(records):
+            row: dict[str, Any] = {
+                "record_id": record.record_id,
+                "patient_id": record.patient_id,
+            }
+            if multilabel:
+                row.update(
+                    {f"true_{name}": int(targets[index, class_index]) for class_index, name in enumerate(class_names)}
+                )
+            else:
+                row["true_class_index"] = int(targets[index])
+            row.update(
+                {f"prob_{name}": float(probabilities[index, class_index]) for class_index, name in enumerate(class_names)}
+            )
+            writer.writerow(row)

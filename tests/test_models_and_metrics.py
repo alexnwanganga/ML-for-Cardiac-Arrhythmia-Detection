@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import numpy as np
 import torch
+from dataclasses import dataclass
+from pathlib import Path
 
 from ecg_experiment.metrics import (
     bootstrap_confidence_intervals,
@@ -9,6 +11,7 @@ from ecg_experiment.metrics import (
     optimize_multilabel_thresholds,
 )
 from ecg_experiment.models import ClassicalECGClassifier
+from ecg_experiment.training import save_prediction_table
 
 
 def test_classical_model_preserves_batch_and_class_dimensions() -> None:
@@ -60,3 +63,19 @@ def test_grouped_bootstrap_returns_reproducible_intervals() -> None:
     second = bootstrap_confidence_intervals(targets, probabilities, ("A", "B"), **kwargs)
     assert first == second
     assert first["macro_f1"]["lower"] == 1.0
+
+
+def test_prediction_table_keeps_record_alignment(tmp_path: Path) -> None:
+    @dataclass
+    class Record:
+        record_id: str
+        patient_id: str
+
+    records = [Record("r1", "p1"), Record("r2", "p2")]
+    targets = np.asarray([[1, 0], [0, 1]])
+    probabilities = np.asarray([[0.8, 0.2], [0.1, 0.9]])
+    output = tmp_path / "predictions.csv"
+    save_prediction_table(output, records, targets, probabilities, ("A", "B"))
+    text = output.read_text(encoding="utf-8")
+    assert "record_id,patient_id,true_A,true_B,prob_A,prob_B" in text
+    assert "r1,p1,1,0,0.8,0.2" in text

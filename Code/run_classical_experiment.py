@@ -31,6 +31,7 @@ from ecg_experiment.training import (
     fit_classifier,
     predict,
     save_json,
+    save_prediction_table,
     select_device,
     set_global_seed,
 )
@@ -247,6 +248,13 @@ def main() -> int:
     validation_targets, validation_probabilities = predict(
         model, validation_loader, device, multilabel=multilabel
     )
+    save_prediction_table(
+        output_dir / "validation_predictions.csv",
+        splits.validation,
+        validation_targets,
+        validation_probabilities,
+        class_names,
+    )
     thresholds = (
         optimize_multilabel_thresholds(validation_targets, validation_probabilities)
         if multilabel
@@ -257,6 +265,13 @@ def main() -> int:
         {"class_names": list(class_names), "thresholds": np.asarray(thresholds).tolist()},
     )
     test_targets, test_probabilities = predict(model, test_loader, device, multilabel=multilabel)
+    save_prediction_table(
+        output_dir / "test_predictions.csv",
+        splits.test,
+        test_targets,
+        test_probabilities,
+        class_names,
+    )
     test_metrics = classification_metrics(
         test_targets,
         test_probabilities,
