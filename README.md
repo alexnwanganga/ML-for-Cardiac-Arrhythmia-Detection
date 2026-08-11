@@ -130,6 +130,12 @@ Use `--stage test` only after prespecifying the winning configuration. The runne
 
 The hybrid runner also exposes registered ablations through `--embedding reupload`, `--shots`, and `--noise-probability`. Use noiseless analytic simulation for architecture screening, then apply finite-shot and noise tests only to the selected finalists.
 
+After the sealed test is run for prespecified finalists, compare their aligned predictions with:
+
+```powershell
+python Code/compare_hybrid_predictions.py --first path/to/model-a/test_predictions.csv --second path/to/model-b/test_predictions.csv --output paired_comparison.json
+```
+
 ## Legacy notebook paths
 
 The notebook currently contains absolute Windows paths from the original development computer. Update the configuration cell near the beginning of the notebook so that these locations match your clone:

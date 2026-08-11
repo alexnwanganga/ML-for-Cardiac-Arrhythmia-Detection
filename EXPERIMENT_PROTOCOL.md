@@ -24,6 +24,8 @@ For multilabel classification, each label's decision threshold is selected on va
 
 Every run exports record-aligned validation and test probabilities. These tables permit audit of sample ordering and paired bootstrap comparisons between finalists without rerunning or rounding model outputs.
 
+Finalists are compared with `compare_hybrid_predictions.py`, which rejects mismatched records or targets and computes paired patient/record-group bootstrap intervals for the difference in performance.
+
 The classical branch compares only classical architectures. The hybrid branch must compare the same CNN encoder with:
 
 1. a linear classical head;

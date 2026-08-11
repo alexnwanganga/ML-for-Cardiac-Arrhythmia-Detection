@@ -33,6 +33,7 @@ from ecg_experiment.training import (
     fit_classifier,
     predict,
     save_json,
+    save_prediction_table,
     select_device,
     set_global_seed,
 )
@@ -255,6 +256,13 @@ def main() -> int:
             raise ValueError("Saved decision-threshold class order does not match this run")
         thresholds = np.asarray(threshold_data["thresholds"], dtype=np.float64)
         test_targets, test_probabilities = predict(model, test_loader, device, multilabel=True)
+        save_prediction_table(
+            output_dir / "test_predictions.csv",
+            splits.test,
+            test_targets,
+            test_probabilities,
+            class_names,
+        )
         metrics = classification_metrics(
             test_targets,
             test_probabilities,
@@ -295,6 +303,13 @@ def main() -> int:
     torch.save(model.state_dict(), checkpoint_path)
     validation_targets, validation_probabilities = predict(
         model, validation_loader, device, multilabel=True
+    )
+    save_prediction_table(
+        output_dir / "validation_predictions.csv",
+        splits.validation,
+        validation_targets,
+        validation_probabilities,
+        class_names,
     )
     thresholds = optimize_multilabel_thresholds(validation_targets, validation_probabilities)
     save_json(
