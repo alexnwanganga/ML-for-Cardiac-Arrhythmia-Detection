@@ -7,6 +7,7 @@ import time
 from collections import Counter
 from pathlib import Path
 
+import numpy as np
 import torch
 
 from ecg_experiment.config import DEFAULT_TARGET_CLASSES, ExperimentConfig, resolve_repo_root
@@ -23,9 +24,14 @@ from ecg_experiment.hybrid_models import (
     load_pretrained_encoder,
     parameter_report,
 )
+from ecg_experiment.metrics import (
+    bootstrap_confidence_intervals,
+    classification_metrics,
+    optimize_multilabel_thresholds,
+)
 from ecg_experiment.training import (
-    evaluate_classifier,
     fit_classifier,
+    predict,
     save_json,
     select_device,
     set_global_seed,
@@ -60,6 +66,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--augment", action="store_true")
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--bootstrap-iterations", type=int, default=1000)
     return parser.parse_args()
 
 
@@ -240,7 +247,31 @@ def main() -> int:
             raise FileNotFoundError(f"Validation checkpoint not found: {checkpoint_path}")
         model.load_state_dict(torch.load(checkpoint_path, map_location="cpu", weights_only=True))
         model.to(device)
-        metrics = evaluate_classifier(model, test_loader, class_names, device, multilabel=True)
+        threshold_path = output_dir / "decision_thresholds.json"
+        if not threshold_path.exists():
+            raise FileNotFoundError(f"Validation thresholds not found: {threshold_path}")
+        threshold_data = json.loads(threshold_path.read_text(encoding="utf-8"))
+        if threshold_data["class_names"] != list(class_names):
+            raise ValueError("Saved decision-threshold class order does not match this run")
+        thresholds = np.asarray(threshold_data["thresholds"], dtype=np.float64)
+        test_targets, test_probabilities = predict(model, test_loader, device, multilabel=True)
+        metrics = classification_metrics(
+            test_targets,
+            test_probabilities,
+            class_names,
+            multilabel=True,
+            threshold=thresholds,
+        )
+        metrics["confidence_intervals"] = bootstrap_confidence_intervals(
+            test_targets,
+            test_probabilities,
+            class_names,
+            groups=[record.patient_id for record in splits.test],
+            multilabel=True,
+            threshold=thresholds,
+            iterations=args.bootstrap_iterations,
+            seed=config.seed,
+        )
         save_json(output_dir / "test_metrics.json", metrics)
         print(json.dumps(metrics, indent=2))
         return 0
@@ -262,8 +293,20 @@ def main() -> int:
     )
     elapsed = time.perf_counter() - started
     torch.save(model.state_dict(), checkpoint_path)
-    validation_metrics = evaluate_classifier(
-        model, validation_loader, class_names, device, multilabel=True
+    validation_targets, validation_probabilities = predict(
+        model, validation_loader, device, multilabel=True
+    )
+    thresholds = optimize_multilabel_thresholds(validation_targets, validation_probabilities)
+    save_json(
+        output_dir / "decision_thresholds.json",
+        {"class_names": list(class_names), "thresholds": thresholds.tolist()},
+    )
+    validation_metrics = classification_metrics(
+        validation_targets,
+        validation_probabilities,
+        class_names,
+        multilabel=True,
+        threshold=thresholds,
     )
     save_json(output_dir / "validation_metrics.json", validation_metrics)
     save_json(
