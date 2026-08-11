@@ -106,10 +106,16 @@ GPU acceleration is optional. The CNN code selects CUDA when available and conta
 The notebook provides an auditable front end, while the same experiment can be run directly:
 
 ```powershell
-python Code/run_classical_experiment.py --output-dir artifacts/classical/seed-43 --seed 43
+python Code/run_classical_experiment.py --stage validate --output-dir artifacts/classical/seed-43 --seed 43
 ```
 
 Each run saves the configuration, exact record-level split, training-only normalization statistics, validation-tuned decision thresholds, best checkpoint, training history, class counts, calibration measures, grouped bootstrap confidence intervals, and final metrics. `artifacts/` is intentionally ignored by Git.
+
+After prespecifying the final classical model, evaluate its sealed test split once with the identical output directory and configuration:
+
+```powershell
+python Code/run_classical_experiment.py --stage test --output-dir artifacts/classical/seed-43 --seed 43
+```
 
 ## Hybrid branch experiments
 
