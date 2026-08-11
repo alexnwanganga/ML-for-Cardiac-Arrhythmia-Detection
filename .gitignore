@@ -1,0 +1,4 @@
+# Local ECG datasets (keep category directories via .gitkeep placeholders)
+/Data/**
+!/Data/*/
+!/Data/*/.gitkeep
